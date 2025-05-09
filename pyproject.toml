@@ -1,6 +1,6 @@
 [project]
 name = "pynsupdate"
-version = "0.5.3"
+version = "0.6.0"
 authors = [
   { name="Júlio Dantas" },
 ]

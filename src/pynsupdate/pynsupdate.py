@@ -48,8 +48,11 @@ def build_nsupdate_commands(dns_server: str, hosts: list[str], forward_fqdn: str
     #TODO build arpa zone
     nsupdate_commands: list[str] = [f"server {dns_server}"]
     fqdns: list[str] = [host + "." + forward_fqdn for host in hosts]
-    
+
     for fqdn in fqdns:
+        nsupdate_commands.append(f"update delete {fqdn} A ")
+        nsupdate_commands.append(f"update delete {fqdn} AAAA ")
+        _LG.debug("Command update delete for A and AAAA for %s adderd", fqdn)
         for ip in ips:
             zone_cmds: list[str] = ["update", "add", fqdn]
             if ttl:
@@ -95,15 +98,16 @@ def run_nsupdate(nsupate_path: str, commands: str, key_file_path: pathlib.Path) 
 
     return completed_process
 
-def get_ips_from_interfaces() -> list[Ips]:
+def get_ips_from_interfaces(interfaces: list[str]) -> list[Ips]:
     valid_families: socket.AddressFamily = [socket.AF_INET, socket.AF_INET6]
     ips: list[Ips] = []
 
     addrs = psutil.net_if_addrs()
     for if_name, addresses in addrs.items():
-        for address_info in addresses:
-            if address_info.family in valid_families:
-                ips.append(address_info.address)
+        if not interfaces or (interfaces and if_name in interfaces):
+            for address_info in addresses:
+                if address_info.family in valid_families:
+                    ips.append(address_info.address)
                 
     return ips
 
@@ -149,7 +153,11 @@ def get_args():
                         "the machine IPs will be used. Can be specified multiple times."))
     parser.add_argument("--ignore-network", action="extend", nargs="*", dest="ignore_networks", #type=ipaddress.ip_network,
                         help=("IPs belonging to the networks provided in this option will be removed "
-                        "from the updating list. If not provided, it defaults to 127.0/8, 169.254/16 and fe80::/10."))  
+                        "from the updating list. If not provided, it defaults to 127.0/8, 169.254/16 and fe80::/10."))
+    parser.add_argument("--interface", action="extend", nargs="*", dest="interfaces",
+                        help=("Filter the IPs by interface. Only used if no '--ip' argument is provided. "
+                              "If not used, it gets the IPs of all interfaces. Can be specified "
+                              "times.")) 
     # parser.add_argument("--add-reverse-zone", action="store_true", dest="reverse_zone", default=False,
     #                     help=("Automatically generate the reverse zones and add them to the update request. "
     #                     "The DNS server holding the zones must be the same and use the same key to update."))
@@ -192,10 +200,14 @@ def validate_args(args: argparse.Namespace) -> None:
         parser.error("The --zone option must end in a dot ('.').")
     if not args.ignore_networks or args.ignore_networks is None:
         args.ignore_networks = default_ignore_networks #[ ipaddress.ip_network(ip) for ip in default_ignore_networks]
+    if args.interfaces is None:
+        args.interfaces = []
     if args.ips is None:
         _LG.info("No IPs provided. Getting IPs assigned to the machine.")
-        args.ips = get_ips_from_interfaces()
+        args.ips = get_ips_from_interfaces(args.interfaces)
         _LG.debug("IP list: %s", args.ips)
+    if args.interfaces is None:
+        args.interfaces = []
     if args.verbose:
         _config_log(args.verbose)
     
